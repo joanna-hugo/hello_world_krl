@@ -8,7 +8,7 @@ A first ruleset for the Quickstart
     shares hello
   }
    
-  global {
+  global asdhjkf{
     hello = function(obj) {
       msg = "Hello " + obj;
       msg
