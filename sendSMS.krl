@@ -24,7 +24,8 @@ ruleset sendSMS_rule {
     pre{
       test = "prelude".klog("in rule ")
       result = sdk:messages(event:attrs{"to"}, 
-                              event:attrs{"from"})
+                              event:attrs{"from"},
+                              event:attrs{"pageSize"})
       messages = result.decode().get(["messages"])                      
     } 
     send_directive({"messages":messages})

@@ -22,13 +22,14 @@ ruleset org.twilio.sdk {
              })
       }
 
-     messages = function(to, from ){
+     messages = function(to, from, pagesize ){
       base_url = <<https://#{accountSID}:#{authToken}#{base_url}#{accountSID}/>>
       url = base_url + "Messages.json"
 
       queryMap = {
         "To":to,
-        "From": from 
+        "From": from,
+        "PageSize": pagesize.as("Number")
       }.filter()
       result = http:get(url, qs = queryMap){"content"}.decode()
       result // this is the return value
