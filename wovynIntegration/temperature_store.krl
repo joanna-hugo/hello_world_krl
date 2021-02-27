@@ -31,10 +31,12 @@ ruleset temperature_store{
         fired {
           ent:temps := []
           ent:violations := []
+          ent:threshold := 100
         }
       }
      
-    rule collect_temperatures{
+    
+      rule collect_temperatures{
       select when wovyn:new_temperature_reading 
       // stores the temperature and timestamp event attributes in an entity variable. 
       // The entity variable should contain all the temperatures that have been processed. 
@@ -50,7 +52,7 @@ ruleset temperature_store{
     }
 
     rule collect_threshold_violations{
-      select when wovyn:threshold_violations
+      select when wovyn:new_temperature_reading
       /*
       stores the violation temperature and a timestamp in a different entity variable that collects threshold violations.
       */
@@ -60,11 +62,24 @@ ruleset temperature_store{
         time = event:attrs{"timestamp"}.klog("timestamp attr")
       }
 
-      always{
+      if(temp > ent:threshold) then 
+        send_directive("temp_violation", {"temp": temp})
+      fired{
         ent:violations := ent:violations.append({"temperature": temp, "timestamp": time }).klog("Adding temperature to violations entity var")
         raise api event "temp_violations"
       }
+      
     }
+
+    rule profile_updated{
+      select when sensor:successfully_updated
+      pre{
+          threshold = event:attrs{"threshold"}.klog("new threshold attribute -")
+      }
+      always{
+          ent:threshold := threshold
+      }
+  }
 
     rule clear_temperatures{
         select when sensor:reading_reset
@@ -72,6 +87,7 @@ ruleset temperature_store{
         always{
             ent:temps := []
             ent:violations := []
+            ent:threshold := 100
             raise api event "reset"
         }
     }

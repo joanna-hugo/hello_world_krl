@@ -2,9 +2,7 @@ ruleset org.twilio.sdk {
     meta {
       name "Twilio SDK"
       author "Joanna HUgo"
-      description <<
-        An SDK for Twilio
-      >>
+      description "An SDK for Twilio"
       configure using
         authToken = ""
         accountSID = ""

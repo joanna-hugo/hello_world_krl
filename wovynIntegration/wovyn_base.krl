@@ -33,7 +33,7 @@ ruleset wovyn_base{
         current = event:attrs{"temperature"}.klog("temperature attr")
       }
       if(event:attrs{"temperature"} > temperature_threshold) then 
-        send_directive("temperature_violation", {"temp": event:attrs{"temperature"}})
+        send_directive("temperature_violation", {"temp": event:attrs{"temperature"}, "timestamp":time:now()})
       fired{
         raise wovyn event "threshold_violation"
         attributes event:attrs
