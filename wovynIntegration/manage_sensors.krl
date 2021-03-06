@@ -27,8 +27,8 @@ ruleset manage_sensors{
             "attrs": {
               "url": URL,
               "config": {
-                "authToken": "#{{authToken}}",
-                "accountSID" : accountSID
+                "authToken": <<#{authToken}>>.klog("authToken: "),
+                "accountSID" : <<#{accountSID}>>.klog("accountSID: ")
               },
               "child_id": child_id
             }
@@ -40,9 +40,10 @@ ruleset manage_sensors{
       }
 
       rulesetURLS = [
+        "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/twilio.sdk.krl",
         "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/wovynIntegration/temperature_store.krl",
-        "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/wovynIntegration/wovyn_base.krl",
-        "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/wovynIntegration/sensor_profile.krl",
+        "https://raw.githubusercontent.com/joanna-hugo/hello_world_krl/main/wovynIntegration/wovyn_base.krl",
+        "https://raw.githubusercontent.com/joanna-hugo/hello_world_krl/main/wovynIntegration/sensor_profile.krl",
         "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/wovynIntegration/wovyn_emitter.krl"
       ]
 
@@ -89,23 +90,6 @@ ruleset manage_sensors{
     }
   }
 
-  rule trigger_install_ruleset_in_child {
-    select when wrangler new_child_created
-    pre {
-      child_eci = event:attrs{"eci"}.klog("the child eci: ")
-      child_id = event:attrs{"child_id"}.klog("child id/name ")
-    }
-    if child_id.klog("found child_id")
-    then 
-      event:send({
-          "domain"  : "manage_sensors",
-          "type"    : "install_rulesets_in_child",
-          "eci"     : child_eci,
-          "name"    : child_id
-        }
-      )
-  }
-
   rule install_rulesets_in_child{
     select when wrangler child_initialized //manage_sensors install_rulesets_in_child
     foreach rulesetURLS setting (ruleURL)
@@ -116,11 +100,6 @@ ruleset manage_sensors{
     event:send(
       ruleset_event(ruleURL, eci, name)
     )
-  }
-
-  rule initialize_state {
-    select when wrangler ruleset_installed
-      send_directive("RULESET INSTALLED, HALLELUJAH")
   }
 
   rule initialize_children_variable {
@@ -147,7 +126,7 @@ ruleset manage_sensors{
   }
 
   rule set_child_profile{
-    select when wrangler ruleset_installed
+    select when wrangler install_ruleset_request where event:attrs{"url"} == rulesetURLS[3]
     pre{
       url = "http://localhost:3000/sky/event/" + event:attrs{"eci"} + "/sensor/profile_updated"
     }
@@ -158,13 +137,4 @@ ruleset manage_sensors{
       "phone_number":"18001234567"
     })
   }
-    
-  // rule get_temps{
-  //   select when sensors:get_temps
-  //   pre{
-  //     children_ecis = ent:children.values().klog("ecis: ")
-  //   }
-  //   foreach (children_ecis) setting (eci)
-  //     send_directive("temperatures": http:get("http://localhost:3000/sky/cloud/" + eci + "/temperatures"))
-  // }
 }

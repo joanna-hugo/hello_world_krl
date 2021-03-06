@@ -4,9 +4,6 @@ ruleset wovyn_base{
       description "Wovyn temperature sensor integration"
       author "Joanna Hugo"
       use module org.twilio.sdk alias sdk
-      with
-        authToken = meta:rulesetConfig{"authToken"}
-        accountSID = meta:rulesetConfig{"accountSID"}
     }
      
     rule process_heartbeat{

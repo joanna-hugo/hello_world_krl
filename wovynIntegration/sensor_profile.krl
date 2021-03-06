@@ -4,9 +4,6 @@ ruleset sensor_profile{
         description "Temperature sensor API"
         author "Joanna Hugo"
         use module org.twilio.sdk alias sdk
-        with
-        authToken = meta:rulesetConfig{"authToken"}
-        accountSID = meta:rulesetConfig{"accountSID"}
         provides location, name, threshold, phone_number
         shares location, name, threshold, phone_number
     }
