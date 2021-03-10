@@ -124,10 +124,33 @@ ruleset sensor_profile{
         "domain":"wrangler", "name":"subscription",
         "attrs": {
           "wellKnown_Tx":subs:wellKnown_Rx(){"id"},
-          "Rx_role":"registration", "Tx_role":"student",
+          "Rx_role":"management", "Tx_role":"sensor",
           "name":ent:name+"-registration", "channel_type":"subscription"
         }
       })
+    }
+
+    rule introduce_sensor_to_manager {
+      select when sensor add_sensor
+      pre {
+          wellKnown_eci = event:attrs{"wellKnown_eci"}
+          Tx_host = event:attrs{"Tx_host"}
+      }
+      always{
+      raise wrangler event "subscription"
+          // "eci": wellKnown_eci,
+          // "domain": "wrangler",
+          // "name": "subscription",
+          attributes {
+              "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
+              "Rx_role": "sensor", //me
+              "Tx_role": "management", //them
+              "Tx_host": Tx_host,
+              "name": event:attrs{"name"}+"-management",
+              "channel_type": "subscription"
+          }
+      
+      }
     }
 
     rule auto_accept {
@@ -136,7 +159,7 @@ ruleset sensor_profile{
         my_role = event:attr("Rx_role").klog("my role: ")
         their_role = event:attr("Tx_role").klog("their role: ")
       }
-      if my_role=="student" && their_role=="registration" then noop()
+      if my_role=="sensor" && their_role=="management" then noop()
       fired {
         raise wrangler event "pending_subscription_approval"
           attributes event:attrs

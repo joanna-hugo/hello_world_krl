@@ -38,6 +38,10 @@ ruleset manage_sensors{
         wrangler:children()
     }
 
+    subscriptions = function(){
+      ent:subs
+    }
+
     rulesetURLS = [
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/twilio.sdk.krl",
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/temperature_store.krl",
@@ -105,6 +109,7 @@ ruleset manage_sensors{
     select when children needs_initialization
     always {
       ent:children:= {}
+      ent:subs := {}
     }
   }
 
@@ -137,27 +142,6 @@ ruleset manage_sensors{
     })
   }
 
-  /*
-  rule pico_ruleset_added {
-    select when wrangler ruleset_installed
-      where event:attrs{"rids"} >< meta:rid
-    pre {
-      child_id = event:attrs{"child_id"}
-      parent_eci = wrangler:parent_eci()
-      wellKnown_eci = subs:wellKnown_Rx(){"id"}
-    }
-    event:send({"eci":parent_eci,
-      "domain": "child", "type": "identify",
-      "attrs": {
-        "child_id": child_id,
-        "wellKnown_eci": wellKnown_eci
-      }
-    })
-    always {
-      ent:children{[child_id,"eci"]} := child_id
-    }
-  } */
-
   rule accept_wellKnown {
     select when child identify
       child_id re#(.+)#
@@ -167,14 +151,35 @@ ruleset manage_sensors{
       ent:children{[child_id,"wellKnown_eci"]} := wellKnown_eci.klog("child wellKnown_eci: ")
     }
   }
+
+  rule introduce_foreign_sensor_to_manager {
+    select when sensor add_sensor
+    pre {
+        wellKnown_eci = event:attrs{"wellKnown_eci"}
+        Tx_host = event:attrs{"Tx_host"}
+    }
+    event:send({
+        "eci": wellKnown_eci,
+        "domain": "wrangler",
+        "name": "subscription",
+        "attrs": {
+            "wellKnown_Tx": subs:wellKnown_Rx(){"id"},
+            "Rx_role": "sensor",
+            "Tx_role": "management",
+            "Tx_host": Tx_host,
+            "name": event:attrs{"name"}+"-management",
+            "channel_type": "subscription"
+        }
+    })
+}
   
-  rule auto_accept { //TODO why isn't this ever being hit?
+  rule auto_accept { 
     select when wrangler inbound_pending_subscription_added
     pre {
       my_role = event:attrs{"Rx_role"}.klog("MY role: ") 
       their_role = event:attrs{"Tx_role"}.klog("THEIR role: ")
     }
-    if my_role=="child sensor" && their_role=="sensor_management" then noop()
+    if my_role=="management" && their_role=="sensor" then noop()
     fired {
       raise wrangler event "pending_subscription_approval"
         attributes event:attrs
