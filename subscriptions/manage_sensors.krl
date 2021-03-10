@@ -13,12 +13,15 @@ ruleset manage_sensors{
   }
 
   global{
+    default_location = "home"
+    default_threshold = 100
+    default_phone_number= "18001234567"
 
     sensors = function(){
       ent:children
     }  
 
-    ruleset_event = function(URL, eci, child_id){
+    ruleset_event = function(URL, eci, child_id, child_role){
       { 
         "eci": eci, 
         "eid": "install-ruleset", // can be anything, used for correlation
@@ -29,7 +32,8 @@ ruleset manage_sensors{
             "authToken": <<#{authToken}>>.klog("authToken: "),
             "accountSID" : <<#{accountSID}>>.klog("accountSID: ")
           },
-          "child_id": child_id
+          "child_id": child_id,
+          "child_role":child_role
         }
       }.klog("ruleset event returning: ")
     }
@@ -61,12 +65,12 @@ ruleset manage_sensors{
     pre {
         child_id = event:attrs{"child_id"}
         exists = (ent:children && ent:children >< (child_id).klog("exists: "))
-        
+        role = event:attrs{"role"}
       }
       if not exists then noop()
       fired {
         raise wrangler event "new_child_request"
-          attributes { "name": child_id, "backgroundColor": "#fff44f", "child_id":child_id }
+          attributes { "name": child_id, "backgroundColor": "#fff44f", "child_id":child_id , "role": role}
       }
   }
 
@@ -85,11 +89,13 @@ ruleset manage_sensors{
     pre {
       child_eci = event:attrs{"eci"}.klog("eci: ")
       child_id = event:attrs{"name"}.klog("child name: ")
+      child_role =  event:attrs{"role"}.klog("child role: ")
     }
     if child_id.klog("found child_id")
       then noop()
     fired {
       ent:children{[child_id,"eci"]} := child_eci
+      ent:children{[child_id, "role"]} := child_role
     }
   }
 
@@ -99,10 +105,51 @@ ruleset manage_sensors{
     pre{
       eci = event:attrs{"eci"}.klog("given eci: ")
       name = event:attrs{"name"}.klog("given name: ")
+      child_role =  ent:children{[name, "role"]}.klog("child role")
     }
     event:send(
-      ruleset_event(ruleURL, eci, name)
+      ruleset_event(ruleURL, eci, name, child_role)
     )
+    fired {
+      ent:children{[name, "eci"]} := eci on final
+      raise sensor event "rulesets_installed"
+          attributes {
+              "eci": eci,
+              "name": name,
+              "role":child_role
+          } on final
+    }
+  }
+
+  rule rulesets_installed {
+    select when sensor rulesets_installed
+    pre {
+      eci = event:attrs{"eci"}
+      name = event:attrs{"name"}
+      role = event:attrs{"role"}
+    }
+    if eci.klog("found sensor eci") then
+      event:send({
+        "eci": eci,
+        "domain": "sensor", "type": "profile_updated",
+        "attrs": {
+          "name": name,
+          "phone_number": default_phone_number, 
+          "threshold": default_threshold,
+          "location":default_location,
+          "role": role
+        }
+      })
+  }
+
+  rule notify_creation {
+      select when sensor rulesets_installed
+      pre {
+        eci = event:attrs{"eci"}
+        name = event:attrs{"name"}
+        role = event:attrs{"role"}
+      }
+      send_directive("sensor_created", {"eci": eci, "name": name, "role":role})
   }
 
   rule initialize_children_variable {
@@ -127,19 +174,6 @@ ruleset manage_sensors{
         attributes {"eci": eci_to_delete};
       clear ent:children{child_id}
     }
-  }
-
-  rule set_child_profile{
-    select when wrangler install_ruleset_request where event:attrs{"url"} == rulesetURLS[3]
-    pre{
-      url = "http://localhost:3000/sky/event/" + event:attrs{"eci"} + "/sensor/profile_updated"
-    }
-    http:post(url, form = {
-      "location":"home",
-      "threshold":100,
-      "name":event:attrs{"name"}.klog("child profile name: "),
-      "phone_number":"18001234567"
-    })
   }
 
   rule accept_wellKnown {
@@ -171,7 +205,7 @@ ruleset manage_sensors{
             "channel_type": "subscription"
         }
     })
-}
+  }
   
   rule auto_accept { 
     select when wrangler inbound_pending_subscription_added

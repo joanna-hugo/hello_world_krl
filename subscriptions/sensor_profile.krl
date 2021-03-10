@@ -7,7 +7,7 @@ ruleset sensor_profile{
         use module io.picolabs.wrangler alias wrangler 
         use module io.picolabs.subscription alias subs
         provides location, name, threshold, phone_number
-        shares location, name, threshold, phone_number, wellKnown_Rx, student_eci
+        shares location, name, threshold, phone_number, wellKnown_Rx, student_eci, role
     }
         
     global{
@@ -29,6 +29,9 @@ ruleset sensor_profile{
         student_eci = function(){
           ent:student_eci
         }
+        role = function(){
+          ent:role
+        }
     }
 
     rule profile_updated{
@@ -38,19 +41,22 @@ ruleset sensor_profile{
             name =  event:attrs{"name"} || ent:name
             threshold = event:attrs{"threshold"} || ent:threshold
             number = event:attrs{"phone_number"} || ent:number
+            role = event:attrs{"role"} || ent:role
         }
         always{
-            ent:location := location.klog("new location ")
-            ent:name := name.klog("new name ")
-            ent:threshold := threshold.klog("new threshold")
-            ent:number := number.klog("new number")
-            raise sensor event "successfully_updated" 
-                attributes{
-                    "location": ent:location,
-                    "name": ent:name,
-                    "number": ent:number,
-                    "threshold":ent:threshold
-                }
+          ent:location := location.klog("new location ")
+          ent:name := name.klog("new name ")
+          ent:threshold := threshold.klog("new threshold")
+          ent:number := number.klog("new number")
+          ent:role := role
+          raise sensor event "successfully_updated" 
+              attributes{
+                  "location": ent:location,
+                  "name": ent:name,
+                  "number": ent:number,
+                  "threshold":ent:threshold,
+                  "role": ent:role
+              } 
         }
     }
 
@@ -79,6 +85,7 @@ ruleset sensor_profile{
           child_id = event:attrs{"child_id"}.klog("child id")
           parent_eci = wrangler:parent_eci()
           wellKnown_eci = subs:wellKnown_Rx(){"id"}
+          role = event:attrs{"child_role"}
         }
         event:send({"eci":parent_eci,
           "domain": "child", "type": "identify",
@@ -89,6 +96,7 @@ ruleset sensor_profile{
         })
         always {
           ent:child_id := child_id
+          ent:role := role
         }
     }
 
@@ -124,7 +132,7 @@ ruleset sensor_profile{
         "domain":"wrangler", "name":"subscription",
         "attrs": {
           "wellKnown_Tx":subs:wellKnown_Rx(){"id"},
-          "Rx_role":"management", "Tx_role":"sensor",
+          "Rx_role":"management", "Tx_role":ent:role, 
           "name":ent:name+"-registration", "channel_type":"subscription"
         }
       })
