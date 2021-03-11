@@ -101,8 +101,24 @@ ruleset manage_sensors{
                         event:attrs{"message"}) setting (response)
   }
 
-  rule notify_admin{
+  rule threshold_violation {
     select when sensor threshold_violation
+    pre {
+        message = event:attrs{"message"}
+    }
+    send_directive("send-message")
+
+    fired {
+        raise sensor event "forward_violation" attributes {
+            "to": default_phone_number,
+            "from":default_phone_number,
+            "msg": message
+        }
+    }
+}
+
+  rule notify_admin{
+    select when sensor forward_violation
     pre{
       eci = event:attrs{"pico_eci"}
       args = {
@@ -229,8 +245,8 @@ ruleset manage_sensors{
   rule introduce_foreign_sensor_to_manager {
     select when sensor add_sensor
     pre {
-        wellKnown_eci = event:attrs{"wellKnown_eci"}
-        sensor_host = event:attrs{"Tx_host"}
+        wellKnown_eci = event:attrs{"wellKnown_eci"}.klog("well known eci")
+        sensor_host = event:attrs{"Tx_host"}.klog("sensor host: ")
     }
     event:send({
         "eci": meta:eci,
@@ -240,11 +256,11 @@ ruleset manage_sensors{
             "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
             "Rx_role": "management",
             "Tx_role": "sensor",
-            //"Tx_host": meta:host, // would be changed to sensor_host if my pico engine was exposed to https
+            "Tx_host": sensor_host, // would be changed to sensor_host if my pico engine was exposed to https
             //"Rx_host": meta:host,
             "name": event:attrs{"name"},
             "channel_type": "subscription",
-            "Tx_host":null,
+            // "Tx_host":null,
             "password":null
         }
     }.klog("raising event: ")) //, host= sensor_host) //<-- NOTE this only works with https
