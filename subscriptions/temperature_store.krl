@@ -79,7 +79,7 @@ ruleset temperature_store{
       always{
           ent:threshold := threshold
       }
-  }
+    }
 
     rule clear_temperatures{
         select when sensor:reading_reset

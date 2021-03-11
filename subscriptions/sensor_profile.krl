@@ -113,6 +113,7 @@ ruleset sensor_profile{
         raise student event "new_subscription_request" // TODO student --> sensor or child
       }
     }
+ 
 
     rule intialization {
         select when wrangler ruleset_installed where event:attrs{"rids"} >< ctx:rid
@@ -126,7 +127,7 @@ ruleset sensor_profile{
         }
     }
 
-    rule make_a_subscription { //this is being triggered successfully
+    rule make_a_subscription { 
       select when student new_subscription_request
       event:send({"eci":ent:wellKnown_Rx.klog("wellKnown_Rx"),
         "domain":"wrangler", "name":"subscription",
@@ -138,28 +139,28 @@ ruleset sensor_profile{
       })
     }
 
-    rule introduce_sensor_to_manager {
-      select when sensor add_sensor
-      pre {
-          wellKnown_eci = event:attrs{"wellKnown_eci"}
-          Tx_host = event:attrs{"Tx_host"}
-      }
-      always{
-      raise wrangler event "subscription"
-          // "eci": wellKnown_eci,
-          // "domain": "wrangler",
-          // "name": "subscription",
-          attributes {
-              "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
-              "Rx_role": "sensor", //me
-              "Tx_role": "management", //them
-              "Tx_host": Tx_host,
-              "name": event:attrs{"name"}+"-management",
-              "channel_type": "subscription"
-          }
+    // rule introduce_sensor_to_manager {
+    //   select when sensor add_sensor
+    //   pre {
+    //       wellKnown_eci = event:attrs{"wellKnown_eci"}
+    //       Tx_host = event:attrs{"Tx_host"}
+    //   }
+    //   always{
+    //   raise wrangler event "subscription"
+    //       // "eci": wellKnown_eci,
+    //       // "domain": "wrangler",
+    //       // "name": "subscription",
+    //       attributes {
+    //           "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
+    //           "Rx_role": "sensor", //me
+    //           "Tx_role": "management", //them
+    //           "Tx_host": Tx_host,
+    //           "name": event:attrs{"name"}+"-management",
+    //           "channel_type": "subscription"
+    //       }.klog("INTRODUCE SENSOR TO MANAGER raising event with attributes: ")
       
-      }
-    }
+    //   }
+    // }
 
     rule auto_accept {
       select when wrangler inbound_pending_subscription_added

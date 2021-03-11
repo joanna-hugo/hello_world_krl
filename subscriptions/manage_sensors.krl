@@ -3,13 +3,14 @@ ruleset manage_sensors{
     name "Managae Sensors"
     description "Manages several childs, each representing a sensor"
     author "Joanna Hugo"
-    shares sensors, showChildren, getRIDs//accessible from GUI
+    shares sensors, showChildren, getRIDs, children, subscriptions, all_temperatures//accessible from GUI
     provides ruleset_event //internal
     configure using
       authToken = ""
       accountSID = ""
     use module io.picolabs.wrangler alias wrangler
     use module io.picolabs.subscription alias subs
+    use module org.twilio.sdk alias sdk
   }
 
   global{
@@ -17,7 +18,7 @@ ruleset manage_sensors{
     default_threshold = 100
     default_phone_number= "18001234567"
 
-    sensors = function(){
+    children = function(){
       ent:children
     }  
 
@@ -42,8 +43,12 @@ ruleset manage_sensors{
         wrangler:children()
     }
 
-    subscriptions = function(){
-      ent:subs
+    subscriptions = function() {
+      subs:established()
+    }
+
+    sensors = function() {
+      subscriptions().filter(function(x) {x{"Tx_role"} == "sensor"})
     }
 
     rulesetURLS = [
@@ -57,6 +62,16 @@ ruleset manage_sensors{
     getRIDs = function(){
       wrangler:installedRIDs()
     }
+
+    all_temperatures = function() {
+      sensors().map(function(v){
+          value = v{"Tx"};
+          answer = wrangler:picoQuery(value, "temperature_store", "temperatures", {})
+          answer
+      }).values().reduce(function(a, b) {
+          a.append(b)
+      })
+  }
 
   }
 
@@ -72,6 +87,31 @@ ruleset manage_sensors{
         raise wrangler event "new_child_request"
           attributes { "name": child_id, "backgroundColor": "#fff44f", "child_id":child_id , "role": role}
       }
+  }
+
+  /*
+  Add a profile ruleset to the sensor management pico that contains the 
+  SMS notification number and a means of sending SMS messages to the 
+  notification number. 
+  */
+  rule sendSMS {
+    select when wovyn:sms_warning
+        sdk:twilioSMS(event:attrs{"to"},
+                        event:attrs{"from"},
+                        event:attrs{"message"}) setting (response)
+  }
+
+  rule notify_admin{
+    select when sensor threshold_violation
+    pre{
+      eci = event:attrs{"pico_eci"}
+      args = {
+        "to":event:attrs{"to"},
+        "from": event:attrs{"from"},
+        "msg":event:attrs{"msg"}
+      }.klog("args: ")
+    }
+    wrangler:picoQuery(eci, "wovyn_base", "notifyAdmin", {})
   }
 
   rule child_already_exists {
@@ -190,22 +230,42 @@ ruleset manage_sensors{
     select when sensor add_sensor
     pre {
         wellKnown_eci = event:attrs{"wellKnown_eci"}
-        Tx_host = event:attrs{"Tx_host"}
+        sensor_host = event:attrs{"Tx_host"}
     }
     event:send({
-        "eci": wellKnown_eci,
+        "eci": meta:eci,
         "domain": "wrangler",
         "name": "subscription",
         "attrs": {
-            "wellKnown_Tx": subs:wellKnown_Rx(){"id"},
-            "Rx_role": "sensor",
-            "Tx_role": "management",
-            "Tx_host": Tx_host,
-            "name": event:attrs{"name"}+"-management",
-            "channel_type": "subscription"
+            "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
+            "Rx_role": "management",
+            "Tx_role": "sensor",
+            //"Tx_host": meta:host, // would be changed to sensor_host if my pico engine was exposed to https
+            //"Rx_host": meta:host,
+            "name": event:attrs{"name"},
+            "channel_type": "subscription",
+            "Tx_host":null,
+            "password":null
         }
-    })
+    }.klog("raising event: ")) //, host= sensor_host) //<-- NOTE this only works with https
   }
+
+  /*
+  raise wrangler event "subscription"
+          // "eci": wellKnown_eci,
+          // "domain": "wrangler",
+          // "name": "subscription",
+          attributes {
+              "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
+              "Rx_role": "sensor", //me
+              "Tx_role": "management", //them
+              "Tx_host": Tx_host,
+              "name": event:attrs{"name"}+"-management",
+              "channel_type": "subscription"
+          }
+      
+      }
+  */
   
   rule auto_accept { 
     select when wrangler inbound_pending_subscription_added
@@ -217,7 +277,6 @@ ruleset manage_sensors{
     fired {
       raise wrangler event "pending_subscription_approval"
         attributes event:attrs
-      ent:subscriptionTx := event:attrs{"Tx"}.klog("fired wrangler: inbound_pending_subscription_added event")
     } else {
       raise wrangler event "inbound_rejection"
         attributes event:attrs

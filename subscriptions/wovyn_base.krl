@@ -4,6 +4,12 @@ ruleset wovyn_base{
       description "Wovyn temperature sensor integration"
       author "Joanna Hugo"
       use module org.twilio.sdk alias sdk
+      shares notifyAdmin
+    }
+    global{
+      notifyAdmin = function(to, from , msg){
+        sdk:twilioSMS(to, from, msg)
+      } 
     }
      
     rule process_heartbeat{
