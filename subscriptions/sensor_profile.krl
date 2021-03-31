@@ -139,29 +139,6 @@ ruleset sensor_profile{
       })
     }
 
-    // rule introduce_sensor_to_manager {
-    //   select when sensor add_sensor
-    //   pre {
-    //       wellKnown_eci = event:attrs{"wellKnown_eci"}
-    //       Tx_host = event:attrs{"Tx_host"}
-    //   }
-    //   always{
-    //   raise wrangler event "subscription"
-    //       // "eci": wellKnown_eci,
-    //       // "domain": "wrangler",
-    //       // "name": "subscription",
-    //       attributes {
-    //           "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
-    //           "Rx_role": "sensor", //me
-    //           "Tx_role": "management", //them
-    //           "Tx_host": Tx_host,
-    //           "name": event:attrs{"name"}+"-management",
-    //           "channel_type": "subscription"
-    //       }.klog("INTRODUCE SENSOR TO MANAGER raising event with attributes: ")
-      
-    //   }
-    // }
-
     rule auto_accept {
       select when wrangler inbound_pending_subscription_added
       pre {

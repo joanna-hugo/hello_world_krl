@@ -66,12 +66,12 @@ ruleset manage_sensors{
     all_temperatures = function() {
       sensors().map(function(v){
           value = v{"Tx"};
-          answer = wrangler:picoQuery(value, "temperature_store", "temperatures", {})
+          answer = wrangler:picoQuery(value, "temperature_store", "temperatures", _host=v{"Tx_host"})
           answer
       }).values().reduce(function(a, b) {
           a.append(b)
       })
-  }
+    }
 
   }
 
@@ -115,7 +115,7 @@ ruleset manage_sensors{
             "msg": message
         }
     }
-}
+  }
 
   rule notify_admin{
     select when sensor forward_violation
@@ -198,16 +198,6 @@ ruleset manage_sensors{
       })
   }
 
-  rule notify_creation {
-      select when sensor rulesets_installed
-      pre {
-        eci = event:attrs{"eci"}
-        name = event:attrs{"name"}
-        role = event:attrs{"role"}
-      }
-      send_directive("sensor_created", {"eci": eci, "name": name, "role":role})
-  }
-
   rule initialize_children_variable {
     select when children needs_initialization
     always {
@@ -249,39 +239,20 @@ ruleset manage_sensors{
         sensor_host = event:attrs{"Tx_host"}.klog("sensor host: ")
     }
     event:send({
-        "eci": meta:eci,
+        "eci": meta:eci, // manager eci
         "domain": "wrangler",
         "name": "subscription",
         "attrs": {
-            "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
+            "wellKnown_Tx": wellKnown_eci, // eci of the sensor
             "Rx_role": "management",
             "Tx_role": "sensor",
-            "Tx_host": sensor_host, // would be changed to sensor_host if my pico engine was exposed to https
-            //"Rx_host": meta:host,
+            "Tx_host": sensor_host, 
             "name": event:attrs{"name"},
             "channel_type": "subscription",
-            // "Tx_host":null,
             "password":null
         }
     }.klog("raising event: ")) //, host= sensor_host) //<-- NOTE this only works with https
   }
-
-  /*
-  raise wrangler event "subscription"
-          // "eci": wellKnown_eci,
-          // "domain": "wrangler",
-          // "name": "subscription",
-          attributes {
-              "wellKnown_Tx": wellKnown_eci, //subs:wellKnown_Rx(){"id"},
-              "Rx_role": "sensor", //me
-              "Tx_role": "management", //them
-              "Tx_host": Tx_host,
-              "name": event:attrs{"name"}+"-management",
-              "channel_type": "subscription"
-          }
-      
-      }
-  */
   
   rule auto_accept { 
     select when wrangler inbound_pending_subscription_added
