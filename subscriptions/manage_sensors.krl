@@ -1,10 +1,11 @@
 ruleset manage_sensors{
+  // file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/manage_sensors.krl
   meta {
     name "Managae Sensors"
     description "Manages several childs, each representing a sensor"
     author "Joanna Hugo"
-    shares sensors, showChildren, getRIDs, children, subscriptions, all_temperatures//accessible from GUI
-    provides ruleset_event //internal
+    shares sensors, showChildren, getRIDs, children, subscriptions, all_temperatures , temp_report, latest_report// , genCorrelationNumber//accessible from GUI
+    provides ruleset_event, genCorrelationNumber //internal
     configure using
       authToken = ""
       accountSID = ""
@@ -20,7 +21,20 @@ ruleset manage_sensors{
 
     children = function(){
       ent:children
-    }  
+    }
+
+    temp_report = function(){
+      ent:temp_report
+    }
+
+    latest_report = function() {
+      length = ent:temp_report.length();
+      length > 5 => ent:temp_report.values().slice(length - 5, length-1) | ent:temp_report
+    }
+
+    genCorrelationNumber = function() {
+		  ent:temp_report.length() || 0
+		}
 
     ruleset_event = function(URL, eci, child_id, child_role){
       { 
@@ -73,6 +87,68 @@ ruleset manage_sensors{
       })
     }
 
+  }
+
+  /*
+  You will need a rule in the  manage_sensors ruleset that sends an event to each sensor pico (and only sensors) 
+  in the collection notifying them that a new temperature report is needed. 
+  Be sure there's a correlation ID in the event sent to the sensor picos and that it's propagated. 
+  */
+  rule send_temp_report_request_to_children{
+    select when management:needs_new_report
+    foreach sensors() setting (sensor)
+    pre{
+      sensor_host = sensor["Tx_host"] || "http://localhost:3000"
+      eci = sensor{"Tx"}
+    }
+    event:send({
+      "eci":eci,
+      "domain": "management", "name": "temp_report_request",
+				"attrs": {
+					"report_correlation_number": genCorrelationNumber(), //TODO is this rcn diff every time? we want it the same 
+					"sensor_id": eci,
+          "originatorID":meta:eci,
+          "originatorHOST":"http://localhost:3000"
+				}
+		})
+  }
+
+  /*
+  You will need a rule in the  manage_sensors ruleset that selects on the event from (2) and stores the results in a collection temperature report. 
+  Be sure the report includes a counter of the number of responding sensors. 
+  Store the report with the correlation ID as the key.
+
+  {<report_id>: {"temperature_sensors" : 4,
+                  "responding" : 4,
+                  "temperatures" : [<temperature reports from sensors>]
+                 }
+}
+  */
+  rule gather{
+    select when sensor:temp_report
+    pre{
+      rcn = event:attrs{"report_correlation_number"}
+      temp = event:attrs{"temp"}
+      current_report = ent:temp_report[rcn] || {
+        "responding": 0 , //hardcode for this first response, all others will iterate
+        "temperatures": []
+      }.klog("current report initially ")
+    }
+    always{
+      ent:temp_report{rcn} := {
+        "temperature_sensors": sensors().length(),
+        "responding":     current_report{"responding"} + 1,
+        "temperatures" :  current_report{"temperatures"}.append(event:attrs{"temp"})
+      }.klog("iterated report")
+      raise sensor event "temp_report_updated" 
+    }
+  }
+
+  rule init_temp_report{
+    select when management:init_temp_report
+    always{
+      ent:temp_report := {}
+    }
   }
 
   rule setup_new_child{ 

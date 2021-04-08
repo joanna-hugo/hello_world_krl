@@ -25,6 +25,33 @@ ruleset temperature_store{
         }
     }
 
+    /*
+    You will need a rule in each sensor pico that listens for the event sent in (1), 
+    and sends an event back to the originator of the event with the most recent temperature reading. 
+    The sensor might also need to send its Rx channel back to the originator so that 
+    the originator can differentiate what reports came from whom. 
+    The originator is usually the sensor management pico, but don't make assumptions. 
+    */
+    rule gather{
+      select when management:temp_report_request
+      pre{
+        orig_host = event:attrs{"originatorHOST"} || "http://localhost:3000"
+        eci = event:attrs{"originatorID"}
+        temp = ent:temps[ent:temps.length()-1]
+      }
+      event:send({
+        "eci":eci,
+        "domain": "sensor", "name": "temp_report",
+          "attrs": {
+            "report_correlation_number": event:attrs{"report_correlation_number"},
+            "sensor_id": meta:eci,
+            "temp": temp["temperature"]
+          }
+      })
+
+    }
+
+
     rule intialization {
         select when wrangler ruleset_installed where event:attrs{"rids"} >< ctx:rid
         if ent:temps.isnull()then noop()
@@ -33,10 +60,10 @@ ruleset temperature_store{
           ent:violations := []
           ent:threshold := 100
         }
-      }
+    }
      
     
-      rule collect_temperatures{
+    rule collect_temperatures{
       select when wovyn:new_temperature_reading 
       // stores the temperature and timestamp event attributes in an entity variable. 
       // The entity variable should contain all the temperatures that have been processed. 
