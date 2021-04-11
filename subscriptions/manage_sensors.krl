@@ -70,6 +70,7 @@ ruleset manage_sensors{
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/temperature_store.krl",
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/wovyn_base.krl",
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/sensor_profile.krl",
+      "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/gossip.krl",
       "file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/wovyn_emitter.krl"
     ]
 
@@ -88,6 +89,11 @@ ruleset manage_sensors{
     }
 
   }
+
+  //TODO rule to clear state in children
+  //TODO rule to start and stop the goosip heartbeat in children
+  //TODO rule to adjust the emitter and gossip periods in children
+
 
   /*
   You will need a rule in the  manage_sensors ruleset that sends an event to each sensor pico (and only sensors) 
@@ -336,7 +342,7 @@ ruleset manage_sensors{
       my_role = event:attrs{"Rx_role"}.klog("MY role: ") 
       their_role = event:attrs{"Tx_role"}.klog("THEIR role: ")
     }
-    if my_role=="management" && their_role=="sensor" then noop()
+    if (my_role=="management" && their_role=="sensor") || (my_role =="node" && their_role =="node") then noop()
     fired {
       raise wrangler event "pending_subscription_approval"
         attributes event:attrs

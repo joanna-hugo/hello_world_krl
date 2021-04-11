@@ -145,7 +145,7 @@ ruleset sensor_profile{
         my_role = event:attrs{"Rx_role"}.klog("my role: ")
         their_role = event:attrs{"Tx_role"}.klog("their role: ")
       }
-      if my_role=="sensor" && their_role=="management" then noop()
+      if (my_role=="sensor" && their_role=="management") || (my_role =="node" && their_role =="node")then noop()
       fired {
         raise wrangler event "pending_subscription_approval"
           attributes event:attrs
@@ -155,6 +155,7 @@ ruleset sensor_profile{
           attributes event:attrs
       }
     }
+
 }
 
 
