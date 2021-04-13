@@ -1,5 +1,4 @@
 ruleset gossip{
-     // file:///Users/user/Documents/winter21/distributed/krl/hello_world_krl/subscriptions/gossip.krl
     meta {
       name "Gossip"
       description "implements heterarchal gossip protocol"
@@ -7,7 +6,7 @@ ruleset gossip{
       use module io.picolabs.wrangler alias wrangler
       use module io.picolabs.subscription alias subs
 
-      shares state, snapshot, picoID, update_period, scheduled_events
+      shares state, snapshot, picoID, update_period, scheduled_events, selectPeer
       provides picoID, scheduled_events, addNewTemp
     }
   
@@ -43,13 +42,14 @@ ruleset gossip{
             schedule:list()
         }
 
-        //TODO fix to pick node with the shortest length of 
         selectPeer = function(){
-            // ent:state{}
+            we_know = ent:state{[ent:picoID, ent:picoID]}.klog("number of events we know:")
 
-            size =  (ent:knownPicos.length() - 1).klog("size:")
-            _index = random:integer(size).klog("_index:") 
-            ent:knownPicos.values()[_index].klog("target:")
+            temp = ent:state.map(function(val, key) { val{key} }).klog("peers know:")
+            diff = temp.filter(function(val, key) {val < we_know}).klog("difference between this and other nodes:")
+            _index =  random:integer (diff.length()-1).klog("random index:")
+
+            diff.keys()[_index]  || false 
         }
 
         addNewTemp = function(picoID, seqID, temp){
@@ -65,9 +65,9 @@ ruleset gossip{
         }
 
         sendSeenMessage = defaction(targetID){
-            msg = ent:state{ent:picoID}{"lastSeen"} || ent:knownPicos.map(function(val, key) {0}).klog("lastSeenMsg:") //TODO fix this
+            msg = (ent:state{ent:picoID} || ent:knownPicos.map(function(val, key) {0})).klog("seen message:")
             event:send ({ 
-                "eci": targetID, 
+                "eci": ent:knownPicos{targetID}, 
                 "eid": "seen message", // can be anything, used for correlation
                 "domain": "gossip", "type": "seen",
                 "attrs": {
@@ -78,15 +78,16 @@ ruleset gossip{
         }
 
         sendRumorMessage = defaction(targetID){
+            templ = ent:allTemps{ent:picoID}.klog("all temps for this pico:")
+            _index = (ent:state{[targetID, ent:picoID]}).klog("next temp to send:" )
             msg = {
-                "MessageID": ent:picoID + ":" + ent:seqID ,
+                "MessageID": ent:picoID + ":" + _index ,
                 "SensorID": ent:picoID,
-                "SeqID" : ent:seqID,
-                "Temperature": ent:state{ent:picoID}{"latestTemp"}{"Temperature"},
-                "Timestamp": ent:state{ent:picoID}{"latestTemp"}{"Timestamp"},
-            }
+                "Temperature": ent:allTemps{[ent:picoID, _index]},
+                "Timestamp": time:now()
+            }.klog("rumor msg")
             event:send ({ 
-                "eci": targetID, 
+                "eci": ent:knownPicos{targetID}, 
                 "eid": "rumor message", // can be anything, used for correlation
                 "domain": "gossip", "type": "rumor",
                 "attrs": {
@@ -106,16 +107,9 @@ ruleset gossip{
         addNewPeerToOwnState = function(picoID){
             currentState = ent:state{ent:picoID}
             newState = currentState.put(picoID, 0)
-            newState //ent:state{ent:picoID} := newState //.put(picoID, 0)
+            newState 
         }
     }
-    //TODO select peer better
-    //TODO send personalized message to peer
-    
-    //DONE state holds data for ALL nodes
-    //DONE start and stop processing
-    //DONE reacting to events depends on ent:processing
-
 
     rule reset{
         select when gossip reset
@@ -129,7 +123,7 @@ ruleset gossip{
             ent:allTemps{ent:picoID} := {}
             
             ent:state := {}
-            ent:state{ent:picoID} := {}.klog("reset own state to") //ent:knownPicos.map(function(val, key) {0})
+            ent:state{ent:picoID} := {}
             raise gossip event "state_initiated"
             raise gossip event "stop_heartbeat"
             raise gossip event "start_heartbeat"
@@ -145,20 +139,21 @@ ruleset gossip{
         "Timestamp": "2021-04-10T16:26:00.260Z"
     }
     */
+
     rule on_rumor{
         select when gossip rumor
         pre{
             msg = event:attrs{"rumorMsg"}.klog("rumor msg:")
             seqID = getSeqIDFromMsg(event:attrs{"rumorMsg"}).klog("returned seqID:")
-            picoID = event:attrs{"rumorMsg"}{"SensorID"}.klog("sensorID:")
+            picoID = event:attrs{"rumorMsg"}{"SensorID"}.klog("sensorID:") //FROM picoID
             temp =event:attrs{"rumorMsg"}{"Temperature"}.klog("temp:")
+            myState = ent:state{ent:picoID}.klog("my state:")
+            currentCount = ent:state{[ent:picoID, picoID]}.klog("current count: ")
         }
-        // if seqID > ent:state{picoID}{}
-        if ent:processing then noop()
+        if ent:processing && seqID > ent:state{[ent:picoID, picoID]} then noop()
         fired{
-            logger = picoID.klog("picoID before func:")
-            ent:allTemps{picoID} := addNewTemp(picoID, seqID, temp)
-            // ent:state{sensorID}{"lastSeen"}:= msg
+            ent:allTemps{picoID} := addNewTemp(picoID, seqID, temp)             // add temp to storage
+            ent:state{[ent:picoID, picoID]} := currentCount +1   // iterate state 
         }
     }
 
@@ -170,15 +165,15 @@ ruleset gossip{
         }
         if ent:processing then noop()
         fired{
-            ent:state{picoID} := msg //addNewTemp(picoID, msg)
+            ent:state{picoID} := msg
         }
     }
     
     /*
     ALGORTHYM PSUEDOCODE
     when gossip_heartbeat {
-        subscriber = getPeer(state)                    
-        m = prepareMessage(state, subscriber)       
+        subscriber = getPeer(state)                   
+        m = prepareMessage(state, subscriber)     
         send (subscriber, m)            
         update(state)     
       }
@@ -186,16 +181,15 @@ ruleset gossip{
     rule on_heartbeat{
         select when gossip heartbeat
         pre{
-            temp = "hello world".klog("made it into the on_heartbeat rule:  ")
             target = selectPeer().klog("target:")
         }
-        if ent:processing then sample{
-            sendRumorMessage(target)
+        if ent:processing && target then sample{ 
+            //target evals to false if we have no information other nodes need, sample rnadomly chooses 1 function
             sendSeenMessage(target)
+            sendRumorMessage(target)
         }
     }
 
-    //TODO check why period coming up empty
     rule start_heartbeat{
         select when gossip start_heartbeat
         pre{
@@ -230,12 +224,6 @@ ruleset gossip{
         
     }
 
-    rule choosePeer{
-        select when gossip choosePeer
-        // filter to peers that need data I have
-        // pick the first one
-    }
-
     rule updateOwnTemps{
         select when wovyn heartbeat
         pre{
@@ -245,16 +233,8 @@ ruleset gossip{
         }
 
         always{
-           
             ent:allTemps{this_pico} := addNewTemp(this_pico, seqID, temp)
-            ent:state{this_pico} :=  { 
-                "latestTemp":{
-                    "MesageID": this_pico + ":" + ent:seqID,
-                    "SensorID": this_pico,
-                    "Temperature": temp,
-                    "Timestamp": time:now()
-                }
-            }.klog("updated personal state")
+            ent:state{[this_pico, this_pico]} := ent:state{[this_pico, this_pico]} + 1 
             ent:seqID := ent:seqID + 1
         }
     }
@@ -267,7 +247,6 @@ ruleset gossip{
             picoID = wrangler:picoQuery(tx, "gossip", "picoID").klog("peerID")
         } 
         always{
-            // ent:state.put([picoID, picoID], 0) //{picoID} := {picoID : 0}
             raise gossip event "newPeer" attributes {
                 "picoID" : picoID,
                 "Rx": tx
@@ -295,32 +274,7 @@ ruleset gossip{
             ent:state{ent:picoID} := ent:zeroState
         }
     }
-
-    /*
-    [
-        {
-            "Rx_role":"node",
-            "Tx_role":"node",
-            "Id":"cknarxm1j02pvg4slel8gbl8h","
-            Tx":"cknarxm1j02pwg4sldc1p9y36",
-            "Rx":"cknarxm1u02pzg4sl974d5lsw"
-        },
-        {
-            "Rx_role":"node",
-            "Tx_role":"node",
-            "Id":"cknas4c86031yg4sl5uuk10v9",
-            "Rx":"cknas4c86031zg4sla6i2hwr5",
-            "Tx":"cknas4c8f0321g4slehy64cia"
-        },
-        {
-            "Rx_role":"node",
-            "Tx_role":"node",
-            "Id":"cknas4sk30339g4slaflx5cjm",
-            "Rx":"cknas4sk3033ag4sl3mbgd0he",
-            "Tx":"cknas4skd033cg4sl77fhcqa1"
-        }
-    ]
-    */
+  
     rule newPeer {
         select when gossip newPeer
         pre {
@@ -330,7 +284,7 @@ ruleset gossip{
         send_directive({"picoID": picoID, "rx": rx})
         always{
           ent:knownPicos{picoID} := rx
-          ent:state{picoID} := ent:zeroState //ent:knownPicos.map(function(val, key) {0})
+          ent:state{picoID} := ent:zeroState 
           ent:state{ent:picoID} := addNewPeerToOwnState()
           ent:allTemps{picoID} := {}
           raise gossip event "newPeerAdded" 
