@@ -34,8 +34,9 @@ ruleset sensor_profile{
         }
     }
 
+  
     rule profile_updated{
-        select when sensor:profile_updated
+        select when sensor:profile_update
         pre{
             location = event:attrs{"location"} || ent:location
             name =  event:attrs{"name"} || ent:name
@@ -120,8 +121,6 @@ ruleset sensor_profile{
       forwards temp violations to the management sensor
       */
       pre{
-        to = subs:established("Tx_role", "management")
-        _from =  subs:wellKnown_Rx(){"id"}
         msg = {
             "temperature": event:attrs{"temperature"} , 
             "timestamp": event:attrs{"timestamp"}
@@ -129,11 +128,11 @@ ruleset sensor_profile{
       }
       event:send(
           {
-            "eci":ent:wellKnown_Rx.klog("wellKnown_Rx"),
+            "eci":subs:established("Rx_role", "management"),
             "domain":"sensor", "name":"forward_violation",
             "attrs": {
-              "from": _from,
-              "to": to,
+              "from": "fakeTwilioPhoneNumber",
+              "to": phone_number(),
               "msg":msg
           }
       })

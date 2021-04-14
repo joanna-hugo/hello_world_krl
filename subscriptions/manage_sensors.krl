@@ -4,7 +4,7 @@ ruleset manage_sensors{
     name "Managae Sensors"
     description "Manages several childs, each representing a sensor"
     author "Joanna Hugo"
-    shares sensors, showChildren, getRIDs, children, subscriptions, all_temperatures , temp_report, latest_report// , genCorrelationNumber//accessible from GUI
+    shares sensors, showChildren, getRIDs, subscriptions, all_temperatures , temp_report, latest_report// , genCorrelationNumber//accessible from GUI
     provides ruleset_event, genCorrelationNumber //internal
     configure using
       authToken = ""
@@ -18,10 +18,6 @@ ruleset manage_sensors{
     default_location = "home"
     default_threshold = 100
     default_phone_number= "18001234567"
-
-    children = function(){
-      ent:children
-    }
 
     temp_report = function(){
       ent:temp_report
@@ -62,7 +58,7 @@ ruleset manage_sensors{
     }
 
     sensors = function() {
-      subscriptions().filter(function(x) {x{"Tx_role"} == "sensor"})
+      subscriptions().filter(function(x) {x{"Tx_role"} == "sensor"}).klog("sensors:")
     }
 
     rulesetURLS = [
@@ -161,7 +157,7 @@ ruleset manage_sensors{
     select when sensor:new_sensor
     pre {
         child_id = event:attrs{"child_id"}
-        exists = (ent:children && ent:children >< (child_id).klog("exists: "))
+        exists = (sensors() >< (child_id).klog("exists: "))
         role = event:attrs{"role"}
       }
       if not exists then noop()
@@ -186,7 +182,7 @@ ruleset manage_sensors{
   rule threshold_violation {
     select when sensor threshold_violation
     pre {
-        message = event:attrs{"message"}
+        _message = event:attrs{"message"}
     }
     send_directive("send-message")
 
@@ -194,7 +190,7 @@ ruleset manage_sensors{
         raise sensor event "forward_violation" attributes {
             "to": default_phone_number,
             "from":default_phone_number,
-            "msg": message
+            "msg": _message
         }
     }
   }
@@ -204,10 +200,10 @@ ruleset manage_sensors{
     pre{
         to = event:attrs{"to"}
         from =  event:attrs{"from"}
-        msg = event:attrs{"msg"}
+        content = event:attrs{"msg"}
     }
     always{
-      msg = sdk:twilioSMS(to, from, msg)
+      dne = sdk:twilioSMS(to, from, content)
     }
   }
 
@@ -218,7 +214,7 @@ ruleset manage_sensors{
       exists = ent:children && ent:children >< child_id
     }
     if exists then
-      send_directive("child_ready", {"child_id":child_id, "data": ent:children})
+      send_directive("child_ready", {"child_id":child_id, "data": sensors()})
   }
 
   rule store_new_child {
@@ -268,7 +264,7 @@ ruleset manage_sensors{
     if eci.klog("found sensor eci") then
       event:send({
         "eci": eci,
-        "domain": "sensor", "type": "profile_updated",
+        "domain": "sensor", "type": "profile_update",
         "attrs": {
           "name": name,
           "phone_number": default_phone_number, 
