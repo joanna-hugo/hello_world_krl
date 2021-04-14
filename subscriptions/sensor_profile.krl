@@ -113,7 +113,31 @@ ruleset sensor_profile{
         raise student event "new_subscription_request" // TODO student --> sensor or child
       }
     }
- 
+
+    rule forward_violations {
+      select when api:temp_violations
+      /*
+      forwards temp violations to the management sensor
+      */
+      pre{
+        to = subs:established("Tx_role", "management")
+        _from =  subs:wellKnown_Rx(){"id"}
+        msg = {
+            "temperature": event:attrs{"temperature"} , 
+            "timestamp": event:attrs{"timestamp"}
+          }
+      }
+      event:send(
+          {
+            "eci":ent:wellKnown_Rx.klog("wellKnown_Rx"),
+            "domain":"sensor", "name":"forward_violation",
+            "attrs": {
+              "from": _from,
+              "to": to,
+              "msg":msg
+          }
+      })
+    }
 
     rule intialization {
         select when wrangler ruleset_installed where event:attrs{"rids"} >< ctx:rid

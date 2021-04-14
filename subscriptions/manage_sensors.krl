@@ -202,14 +202,13 @@ ruleset manage_sensors{
   rule notify_admin{
     select when sensor forward_violation
     pre{
-      eci = event:attrs{"pico_eci"}
-      args = {
-        "to":event:attrs{"to"},
-        "from": event:attrs{"from"},
-        "msg":event:attrs{"msg"}
-      }.klog("args: ")
+        to = event:attrs{"to"}
+        from =  event:attrs{"from"}
+        msg = event:attrs{"msg"}
     }
-    wrangler:picoQuery(eci, "wovyn_base", "notifyAdmin", {})
+    always{
+      msg = sdk:twilioSMS(to, from, msg)
+    }
   }
 
   rule child_already_exists {
