@@ -118,24 +118,27 @@ ruleset sensor_profile{
     rule forward_violations {
       select when api:temp_violations
       /*
-      forwards temp violations to the management sensor
+      forwards temp violations to the management sensors
       */
-      pre{
-        msg = {
-            "temperature": event:attrs{"temperature"} , 
-            "timestamp": event:attrs{"timestamp"}
-          }
-      }
-      event:send(
-          {
-            "eci":subs:established("Rx_role", "management"),
-            "domain":"sensor", "name":"forward_violation",
-            "attrs": {
-              "from": "fakeTwilioPhoneNumber",
-              "to": phone_number(),
-              "msg":msg
-          }
-      })
+      foreach subs:established("Rx_role", "management") setting (manager)
+        pre{
+          msg = {
+              "temperature": event:attrs{"temperature"} , 
+              "timestamp": event:attrs{"timestamp"}
+            }
+          managers = subs:established("Rx_role", "management")
+        }
+        event:send(
+            {
+              "eci":manager,
+              "domain":"sensor", "name":"forward_violation",
+              "attrs": {
+                "from": "fakeTwilioPhoneNumber",
+                "to": phone_number(),
+                "msg":msg
+            }
+        })
+      
     }
 
     rule intialization {

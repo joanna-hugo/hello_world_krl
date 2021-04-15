@@ -16,7 +16,7 @@ ruleset manage_sensors{
 
   global{
     default_location = "home"
-    default_threshold = 100
+    default_threshold = 74
     default_phone_number= "18001234567"
 
     temp_report = function(){
