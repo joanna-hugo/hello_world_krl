@@ -48,24 +48,24 @@ ruleset gossip{
 
             temp = ent:state.map(function(val, key) { val{key} }).klog("peers know:")
             diff = temp.filter(function(val, key) {val < we_know}).klog("difference between this and other nodes:")
-            _index =  random:integer (diff.length()-1).klog("random index:")
+            _index =  random:integer (diff.length()-1) //.klog("random index:")
             diff.keys()[_index]  || ent:knownPicos.keys()[0]
+        }
+
+        peerIsInNeed = function(target){
+            // if we know more than they do 
+            ent:state{ent:picoID}{ent:picoID} > ent:state{target}{ent:picoID}
         }
 
         addNewTemp = function(picoID, temp){
             myTemps = ent:allTemps{picoID}.klog("temps for this pico before updating:")
             myTemps.append(temp).klog("updated temps:")
         }
-
-        updateLastSeen = function(sensorID, msg){
-            currentSeen = ent:state{sensorID}
-            currentSeen.put("lastSeen", msg)
-        }
         
         getSeqIDFromMsg = function(msg){
-            msgID = msg{"MessageID"}.klog("msg in parsing func")
+            msgID = msg{"MessageID"}//.klog("msg in parsing func")
             vals = msgID.split(re#:#)
-            vals[1].klog("parsed seqID")
+            vals[1]//.klog("parsed seqID")
         }
 
         addNewPeerToOwnState = function(picoID){
@@ -74,10 +74,6 @@ ruleset gossip{
             newState 
         }
     }
-    //TODO test with 3 nodes
-    //TODO setup rule to add foregin pico to state
-    //TODO setup way to create rumor message about 3rd party node
-    //TODO with ^^ possibly create a new way to select a peer. Randomly?
 
     rule updateOwnTempsManual{
         select when gossipDebug newTemp
@@ -97,7 +93,7 @@ ruleset gossip{
     rule reset{
         select when gossip reset
         always{
-            ent:seqID := -1
+            ent:seqID := 0
             ent:processing := true
             peerArray = subs:established("Tx_role", "node").klog("knownPicos:") || {}
             ent:knownPicos := {}
@@ -115,27 +111,20 @@ ruleset gossip{
         }
     }
 
-    /* {
-        "MessageID" : "planned:154",
-        "SensorID" : "planned",
-        "Temperature" : 74.8,
-        "Timestamp": "2021-04-10T16:26:00.260Z"
-    } */
-
     rule on_rumor{
         select when gossip rumor
         pre{
             msg = event:attrs{"rumorMsg"}.klog("rumor msg:")
-            seqID = getSeqIDFromMsg(event:attrs{"rumorMsg"}).klog("returned seqID:")
+            seqID = getSeqIDFromMsg(event:attrs{"rumorMsg"}).as("Number").klog("seqID:")
             picoID = event:attrs{"rumorMsg"}{"SensorID"}.klog("sensorID:") //FROM picoID
             temp =event:attrs{"rumorMsg"}{"Temperature"}.klog("temp:")
             myState = ent:state{ent:picoID}.klog("my state:")
         }
         if ent:processing  then noop()
         fired{
-            ent:allTemps{picoID} := addNewTemp(picoID, temp)             // add temp to storage
-            ent:state{[ent:picoID, picoID]} := seqID.as("Number")       // iterate state 
-            ent:state{[picoID, picoID]} := seqID.as("Number").klog("seqID as a number:")
+            ent:allTemps{picoID} := addNewTemp(picoID, temp) // add temp to storage 
+            ent:state{[ent:picoID, picoID]} := seqID       // iterate state 
+            ent:state{[picoID, picoID]} := seqID
         }
     }
 
@@ -148,35 +137,14 @@ ruleset gossip{
         if ent:processing then noop()
         fired{
             ent:state{picoID} := msg
-            raise gossip event "rumorNeeded" attributes {"target": picoID} //this is optional but speeds up synchronization
-        }
-    }
-    
-    /*
-    ALGORTHYM PSUEDOCODE
-    when gossip_heartbeat {
-        subscriber = getPeer(state)                   
-        m = prepareMessage(state, subscriber)     
-        send (subscriber, m)            
-        update(state)     
-      }
-    */
-    rule filterByNeed{
-        //filters by ff any peers need updates
-        select when gossip heartbeat
-        pre{
-            target = selectPeer().klog("target:")
-        }
-        if target then noop()
-        fired { //target evals to false when no peer in need
-            raise gossip event "heartbeatPeerInNeed" attributes {"target": target}
+            // raise gossip event "rumorNeeded" attributes {"target": picoID} //this is optional but speeds up synchronization TODO
         }
     }
 
-    rule on_heartbeat{
-        select when gossip heartbeatPeerInNeed
+    rule on_heartbeatPeerInNeed{
+        select when gossip heartbeat
         pre{
-            target = event:attrs{"target"}
+            target = selectPeer().klog("target")
             num = random:integer(10).klog("random num:") // between 0 and 10
         }
         if num < 7 then noop() //70% of events will be rumor, 30% seen events
@@ -205,6 +173,7 @@ ruleset gossip{
           }.klog("sending seen event:"))
     }
 
+    // includes filtering by is peer needs something from us
     rule rumorNeeded{
         select when gossip rumorNeeded
         pre{
@@ -213,20 +182,31 @@ ruleset gossip{
             msg = {
                 "MessageID": ent:picoID + ":" + _index ,
                 "SensorID": ent:picoID,
-                "Temperature": ent:allTemps{ent:picoID}[_index].defaultsTo(ent:allTemps{ent:picoID}.head()), //TODO this is sending bad info and then iterating state to be too high
+                "Temperature": ent:allTemps{ent:picoID}[_index], //TODO is this sending bad info and then iterating state to be too high
                 "Timestamp": time:now()
             }.klog("rumor msg")
         }
-
-        event:send({ 
-            "eci": ent:knownPicos{target}, 
-            "eid": "rumor message", // can be anything, used for correlation
-            "domain": "gossip", "type": "rumor",
-            "attrs": {
-                "rumorMsg" : msg
-            }
-        })
-        always{
+        if msg{"Temperature"} != null && peerIsInNeed(target) then
+            event:send({ 
+                "eci": ent:knownPicos{target}, 
+                "eid": "rumor message", // can be anything, used for correlation
+                "domain": "gossip", "type": "rumor",
+                "attrs": {
+                    "rumorMsg" : msg
+                }
+            })
+    }
+    
+    //this rule assumes the rumor is sent and updates state accordingly
+    rule updateStateWhenSendingRumor{
+        select when gossip rumorNeeded
+        pre{
+            target = event:attrs{"target"}
+            _index = ent:state{[target, ent:picoID]}
+            Temperature = ent:allTemps{ent:picoID}[_index] 
+        }
+        if Temperature != null then noop()
+        fired{
             ent:state{[target, ent:picoID]} := ent:state{[target,ent:picoID]} + 1
         }
     }
