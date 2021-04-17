@@ -136,4 +136,14 @@ ruleset io.picolabs.wovyn.emitter {
     } 
   }
 
+  rule newSchedule{
+    select when emitter newSchedule
+    pre{
+      period = ent:heartbeat_period
+    }
+    always{
+      schedule emitter event "new_sensor_reading" repeat << */#{period} * * * * * >>  attributes { }
+    }
+  }
+
 }

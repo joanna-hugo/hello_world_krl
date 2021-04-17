@@ -6,37 +6,39 @@ ruleset gossip{
       use module io.picolabs.wrangler alias wrangler
       use module io.picolabs.subscription alias subs
 
-      shares state, snapshot, picoID, update_period, scheduled_events, selectPeer
+      shares violations, state, snapshot, picoID, scheduled_events, selectPeer
       provides picoID, scheduled_events, addNewTemp
     }
   
     global{
-        period = 20
 
         state = function(){
             ent:state
         }
 
+        violations = function(){
+            {
+                "this pico status" : ent:violationStatus,
+                "systemStatus": ent:violationCount
+            }
+        }
+
         snapshot = function(){
             {
-                "violations": ent:state_violations,
+                "violations": ent:violationCount,
+                "violationStatus": ent:violationStatus,
                 "state" :   ent:state,
                 "seqID" :   ent:seqID,
                 "picoID":   ent:picoID,
                 "processing": ent:processing,
                 "peers":    ent:knownPicos,
-                "heartbeat period" : period,
+                "heartbeat period" : ent:period,
                 "allTemps": ent:allTemps
             }
         }
 
         picoID = function(){
             ent:picoID
-        }
-
-        update_period = function(newPeriod){
-            period = newPeriod
-            period
         }
 
         scheduled_events = function(){
@@ -75,6 +77,7 @@ ruleset gossip{
         }
     }
 
+
     rule updateOwnTempsManual{
         select when gossipDebug newTemp
         pre{
@@ -90,20 +93,93 @@ ruleset gossip{
         }
     }
 
+    rule resetViolations{
+        select when gossip resetViolOnly
+        always{
+            ent:violationStatus := -1
+            ent:violationCount := 0
+        }
+    }
+
+
+    rule onViolation{
+        select when api temp_violations or wovyn:threshold_violation
+        if ent:violationStatus.klog("current violation status:") < 0 then noop() //before status = -1, 0 --> STILL inviolation or no violation
+        fired{
+            ent:violationStatus := 1.klog("new violation status:")
+            raise gossip event "violationStatusUpdated"
+        }
+        else{
+            ent:violationStatus := 0.klog("new violation status:")
+        }
+    }
+
+    rule onCoolTemp{
+        select when wovyn heartbeat 
+        pre{
+            temp = event:attrs{"genericThing"}{"data"}{"temperature"}[0]{"temperatureF"}.klog("tempF:")
+        }
+        if ent:violationStatus <= 0 && temp < 75 then noop() //TODO threshold == 75
+        fired{
+            ent:violationStatus := -1
+            raise gossip event "violationStatusUpdated"
+        }
+    }
+    /*
+    rule onViolStatusUpdated{
+        select when gossip violationStatusUpdated
+        // broadcast update to all peers
+        foreach ent:knownPicos setting (eci, id )
+        pre{
+            log = eci.klog("eci:")
+            logger = id.klog("id:")
+        }
+
+        event:send ({ 
+            "eci": eci, 
+            "eid": "seen message", // can be anything, used for correlation
+            "domain": "gossip", "type": "systemViolationUpdate",
+            "attrs": {
+              "update" : ent:violationStatus
+            }
+          })
+
+        always{
+            ent:violationCount := ent:violationCount + ent:violationStatus
+            raise gossip event "stuff" attributes{"eci":eci}
+
+        }
+    }
+
+    rule onSystemUpdate{
+        select when gossip systemViolationUpdate
+        pre{
+            update = event:attrs{"update"}
+        }
+        always{
+            ent:violationCount := (ent:violationCount + update).klog("updated system violation count:")
+        } 
+    }
+    */
+
+
     rule reset{
         select when gossip reset
         always{
             ent:seqID := 0
+            ent:period := 20
             ent:processing := true
             peerArray = subs:established("Tx_role", "node").klog("knownPicos:") || {}
             ent:knownPicos := {}
 
             ent:allTemps := {}
             ent:allTemps{ent:picoID} := []
+
+            ent:violationStatus := -1
+            ent:violationCount := 0
             
             ent:state := {}
             ent:state{ent:picoID} := {}
-            ent:state_violations := 0
             ent:zeroState := {}
             raise gossip event "state_initiated"
             raise gossip event "stop_heartbeat"
@@ -119,12 +195,14 @@ ruleset gossip{
             picoID = event:attrs{"rumorMsg"}{"SensorID"}.klog("sensorID:") //FROM picoID
             temp =event:attrs{"rumorMsg"}{"Temperature"}.klog("temp:")
             myState = ent:state{ent:picoID}.klog("my state:")
+            violStatus = event:attrs{"violationStatus"}.klog("peer's violation status:")
         }
         if ent:processing  then noop()
         fired{
             ent:allTemps{picoID} := addNewTemp(picoID, temp) // add temp to storage 
             ent:state{[ent:picoID, picoID]} := seqID       // iterate state 
             ent:state{[picoID, picoID]} := seqID
+            ent:violationCount := (ent:violationCount + violStatus).klog("updated violation count")
         }
     }
 
@@ -133,11 +211,12 @@ ruleset gossip{
         pre{
             msg = event:attrs{"seenMsg"}.klog("seen msg:")
             picoID = event:attrs{"povID"}
+            violationCount = event:attrs{"violationCount"}.klog("peers violation count" )
         }
         if ent:processing then noop()
         fired{
             ent:state{picoID} := msg
-            // raise gossip event "rumorNeeded" attributes {"target": picoID} //this is optional but speeds up synchronization TODO
+            ent:violationCount := violationCount
         }
     }
 
@@ -168,7 +247,8 @@ ruleset gossip{
             "domain": "gossip", "type": "seen",
             "attrs": {
               "seenMsg" : msg,
-              "povID" : ent:picoID
+              "povID" : ent:picoID,
+              "violationCount":ent:violationCount
             }
           }.klog("sending seen event:"))
     }
@@ -178,7 +258,7 @@ ruleset gossip{
         select when gossip rumorNeeded
         pre{
             target = event:attrs{"target"}.klog("target")
-            _index = ent:state{[target, ent:picoID]}.klog("next temp index to send:" ) 
+            _index = (ent:state{[target, ent:picoID]} + 1 ).klog("next temp index to send:" ) 
             msg = {
                 "MessageID": ent:picoID + ":" + _index ,
                 "SensorID": ent:picoID,
@@ -192,7 +272,8 @@ ruleset gossip{
                 "eid": "rumor message", // can be anything, used for correlation
                 "domain": "gossip", "type": "rumor",
                 "attrs": {
-                    "rumorMsg" : msg
+                    "rumorMsg" : msg,
+                    "violationStatus":ent:violationStatus
                 }
             })
     }
@@ -211,10 +292,18 @@ ruleset gossip{
         }
     }
 
+    rule updatePeriod{
+        select when gossip newPeriod
+        always{
+            ent:period := event:attrs{"newPeriod"}
+            // send_directive({"period":ent:period})
+        }
+    }
+
     rule start_heartbeat{
         select when gossip start_heartbeat
         pre{
-            cron_string = "*/" + period + "  *  * * * *".klog("CRON string: ")
+            cron_string = "*/" + ent:period + "  *  * * * *".klog("CRON string: ")
         }
         always{
             schedule gossip event "heartbeat" 

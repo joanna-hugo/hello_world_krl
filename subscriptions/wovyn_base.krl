@@ -32,7 +32,7 @@ ruleset wovyn_base{
     rule find_high_temps{
       select when wovyn:new_temperature_reading
       pre{
-        temperature_threshold = 100
+        temperature_threshold = 75
         current = event:attrs{"temperature"}.klog("temperature attr")
       }
       if(event:attrs{"temperature"} > temperature_threshold) then 
